@@ -3078,6 +3078,10 @@ Niivue.prototype.setInterpolation = function (isNearest) {
 // not included in public docs
 Niivue.prototype.draw2D = function (leftTopWidthHeight, axCorSag) {
   this.gl.cullFace(this.gl.FRONT);
+
+  // ensure we are only updating the part of the canvas for this view
+  this.gl.enable(this.gl.SCISSOR_TEST);
+  this.gl.scissor(...leftTopWidthHeight);
   var crossXYZ = [
     this.scene.crosshairPos[0],
     this.scene.crosshairPos[1],
@@ -3125,6 +3129,9 @@ Niivue.prototype.draw2D = function (leftTopWidthHeight, axCorSag) {
   //gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   this.gl.bindVertexArray(this.genericVAO); //set vertex attributes
   this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+  
+  // turn off scissor test
+  this.gl.disable(this.gl.SCISSOR_TEST);
   //record screenSlices to detect mouse click positions
   this.screenSlices[this.numScreenSlices].leftTopWidthHeight =
     leftTopWidthHeight;
