@@ -207,13 +207,33 @@ uniform int axCorSag;
 uniform float slice;
 uniform vec2 canvasWidthHeight;
 uniform vec4 leftTopWidthHeight;
+uniform vec2 offset;
+uniform float zoom;
+uniform vec2 crosshairs;
+
 out vec3 texPos;
 void main(void) {
 	//convert pixel x,y space 1..canvasWidth,1..canvasHeight to WebGL 1..-1,-1..1
+	float midx = leftTopWidthHeight.x + crosshairs.x * leftTopWidthHeight.z;
+	float midy = leftTopWidthHeight.y + crosshairs.y * leftTopWidthHeight.w;
+	float scaledMidx =  (midx / canvasWidthHeight.x); //0..1
+	float scaledMidy = (midy / canvasWidthHeight.y); //0..1
+
+	float scale = zoom;// * 0.25;
 	vec2 frac;
-	frac.x = (leftTopWidthHeight.x + (pos.x * leftTopWidthHeight.z)) / canvasWidthHeight.x; //0..1
-	frac.y = 1.0 - ((leftTopWidthHeight.y + ((1.0 - pos.y) * leftTopWidthHeight.w)) / canvasWidthHeight.y); //1..0
+
+	
+	frac.x = (leftTopWidthHeight.x + offset.x + (pos.x * leftTopWidthHeight.z)) / canvasWidthHeight.x; //0..1
+	frac.y = 1.0 - ((leftTopWidthHeight.y + offset.y + ((1.0 - pos.y) * leftTopWidthHeight.w)) / canvasWidthHeight.y); //1..0
+	
+	
+	// keep zoomed image centered
+	frac.x = (frac.x - scaledMidx) * scale + scaledMidx;
+	frac.y = (frac.y - scaledMidy) * scale + scaledMidy;
+
+
 	frac = (frac * 2.0) - 1.0;
+	
 	gl_Position = vec4(frac, 0.0, 1.0);
 	if (axCorSag == 1)
 		texPos = vec3(pos.x, slice, pos.y);

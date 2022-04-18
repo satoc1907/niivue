@@ -47,6 +47,8 @@ import defaultFontMetrics from "./fonts/Roboto-Regular.json";
 import { colortables } from "./colortables";
 const log = new Log();
 const cmapper = new colortables();
+const SLICE_SCROLL_MODE = 0;
+const SLICE_PAN_ZOOM_MODE = 1;
 
 /**
  * @typedef {Object} NiivueOptions
@@ -61,6 +63,7 @@ const cmapper = new colortables();
  * @property {boolean} [options.trustCalMinMax=true] true/false whether to trust the nifti header values for cal_min and cal_max. Trusting them results in faster loading because we skip computing these values from the data
  * @property {string} [options.clipPlaneHotKey="KeyC"] the keyboard key used to cycle through clip plane orientations. The default is "c"
  * @property {string} [options.viewModeHotKey="KeyV"] the keyboard key used to cycle through view modes. The default is "v"
+ * @property {string} [options.viewSliceModeHotKey="KeyS"]
  * @property {number} [options.keyDebounceTime=50] the keyUp debounce time in milliseconds. The default is 50 ms. You must wait this long before a new hot-key keystroke will be registered by the event listener
  * @property {boolean} [options.isRadiologicalConvention=false] whether or not to use radiological convention in the display
  * @property {string} [options.logging=false] turn on logging or not (true/false)
@@ -94,6 +97,7 @@ export function Niivue(options = {}) {
     trustCalMinMax: true, // trustCalMinMax: if true do not calculate cal_min or cal_max if set in image header. If false, always calculate display intensity range.
     clipPlaneHotKey: "KeyC", // keyboard short cut to activate the clip plane
     viewModeHotKey: "KeyV", // keyboard shortcut to switch view modes
+    viewSliceModeHotKey: "KeyS",
     keyDebounceTime: 50, // default debounce time used in keyup listeners
     isNearestInterpolation: false,
     isAtlasOutline: false,
@@ -104,6 +108,7 @@ export function Niivue(options = {}) {
     drawingEnabled: false, // drawing disabled by default
     penValue: 1, // sets drawing color. see "drawPt"
     thumbnail: "",
+    sliceMode: SLICE_PAN_ZOOM_MODE, //SLICE_SCROLL_MODE,
   };
 
   this.canvas = null; // the canvas element on the page
@@ -200,6 +205,13 @@ export function Niivue(options = {}) {
   this.CLIP_PLANE_ID = 1;
   this.VOLUME_ID = 254;
   this.DISTANCE_FROM_CAMERA = -0.54;
+  this.sliceMode = SLICE_PAN_ZOOM_MODE;
+  this.sliceOffsets = [
+    [0, 0],
+    [0, 0],
+    [0, 0],
+  ];
+  this.sliceZoomLevels = [1.0, 1.0, 1.0];
   this.meshShaders = [
     {
       Name: "Phong",
@@ -483,8 +495,16 @@ Niivue.prototype.mouseLeftButtonHandler = function (e) {
     e,
     this.gl.canvas
   );
-  this.mouseClick(pos.x, pos.y);
-  this.mouseDown(pos.x, pos.y);
+
+  if (this.sliceMode === SLICE_PAN_ZOOM_MODE) {
+    console.log("panning");
+    this.dragStart[0] = pos.x;
+    this.dragStart[1] = pos.y;
+    this.isDragging = true;
+  } else {
+    this.mouseClick(pos.x, pos.y);
+    this.mouseDown(pos.x, pos.y);
+  }
 };
 
 // not included in public docs
@@ -588,14 +608,16 @@ Niivue.prototype.calculateNewRange = function (volIdx = 0) {
 // handler for mouse button up (all buttons)
 // note: no test yet
 Niivue.prototype.mouseUpListener = function () {
+  if (this.isDragging) {
+    this.isDragging = false;
+    if (this.scene.mouseButtonRightDown) {
+      this.calculateNewRange();
+      this.refreshLayers(this.volumes[0], 0, this.volumes.length);
+    }
+  }
   this.scene.mousedown = false;
   this.scene.mouseButtonRightDown = false;
   this.scene.mouseButtonLeftDown = false;
-  if (this.isDragging) {
-    this.isDragging = false;
-    this.calculateNewRange();
-    this.refreshLayers(this.volumes[0], 0, this.volumes.length);
-  }
   this.drawScene();
 };
 
@@ -649,8 +671,18 @@ Niivue.prototype.mouseMoveListener = function (e) {
       this.gl.canvas
     );
     if (this.scene.mouseButtonLeftDown) {
-      this.mouseClick(pos.x, pos.y);
-      this.mouseMove(pos.x, pos.y);
+      if (this.sliceMode === SLICE_PAN_ZOOM_MODE) {
+        let sliceClicked = this.getSlideFromPos(pos.x, pos.y);
+        if (sliceClicked < 0) {
+          return;
+        }
+        this.sliceOffsets[sliceClicked][0] = pos.x - this.dragStart[0];
+        this.sliceOffsets[sliceClicked][1] = pos.y - this.dragStart[1];
+        this.drawScene();
+      } else {
+        this.mouseClick(pos.x, pos.y);
+        this.mouseMove(pos.x, pos.y);
+      }
     } else if (this.scene.mouseButtonRightDown) {
       this.dragEnd[0] = pos.x;
       this.dragEnd[1] = pos.y;
@@ -659,6 +691,29 @@ Niivue.prototype.mouseMoveListener = function (e) {
     this.scene.prevX = this.scene.currX;
     this.scene.prevY = this.scene.currY;
   }
+};
+
+Niivue.prototype.getSlideFromPos = function (x, y) {
+  let sliceClicked = -1;
+  for (let i = 0; i < this.numScreenSlices; i++) {
+    var axCorSag = this.screenSlices[i].axCorSag;
+    if (axCorSag > this.sliceTypeSagittal) continue;
+    var ltwh = this.screenSlices[i].leftTopWidthHeight;
+    let isMirror = false;
+    if (ltwh[2] < 0) {
+      isMirror = true;
+      ltwh[0] += ltwh[2];
+      ltwh[2] = -ltwh[2];
+    }
+    var fracX = (x - ltwh[0]) / ltwh[2];
+    if (isMirror) fracX = 1.0 - fracX;
+    var fracY = 1.0 - (y - ltwh[1]) / ltwh[3];
+    if (fracX >= 0.0 && fracX < 1.0 && fracY >= 0.0 && fracY < 1.0) {
+      //user clicked on slice i
+      sliceClicked = i;
+    }
+  }
+  return sliceClicked;
 };
 
 // not included in public docs
@@ -782,6 +837,19 @@ Niivue.prototype.keyUpListener = function (e) {
     if (elapsed > this.opts.keyDebounceTime) {
       this.setSliceType((this.sliceType + 1) % 5); // 5 total slice types
       this.lastCalled = now;
+    }
+  } else if (e.code === this.opts.viewSliceModeHotKey) {
+    // console.log("toggle slice view mode");
+    // console.log(this.sliceMode);
+    // this.sliceMode = !this.sliceMode;
+    // console.log(this.sliceMode);
+    switch (this.sliceMode) {
+      case SLICE_PAN_ZOOM_MODE:
+        this.sliceMode = SLICE_SCROLL_MODE;
+        break;
+      default:
+        this.sliceMode = SLICE_PAN_ZOOM_MODE;
+        break;
     }
   }
 };
@@ -2772,7 +2840,18 @@ Niivue.prototype.mouseClick = function (x, y, posChange = 0, isDelta = true) {
     this.bmpTexture = null;
     //the thumbnail is now released, do something profound: actually load the images
   }
-
+  if (this.sliceMode === SLICE_PAN_ZOOM_MODE) {
+    let sliceZoomed = this.getSlideFromPos(x, y);
+    console.log("zooming slide");
+    if (sliceZoomed >= 0) {
+      this.volScaleMultiplier =
+        posChange > 0
+          ? Math.min(2.0, this.volScaleMultiplier * 1.1)
+          : Math.max(0.5, this.volScaleMultiplier * 0.9);
+      this.drawScene();
+    }
+    return;
+  }
   if (this.sliceType === this.sliceTypeRender) {
     if (posChange === 0) return;
     if (this.scene.clipPlaneDepthAziElev[0] < 1.8) {
@@ -3078,10 +3157,12 @@ Niivue.prototype.setInterpolation = function (isNearest) {
 // not included in public docs
 Niivue.prototype.draw2D = function (leftTopWidthHeight, axCorSag) {
   this.gl.cullFace(this.gl.FRONT);
-
+  let rect = leftTopWidthHeight;
+  rect[3] = this.canvas.height;
   // ensure we are only updating the part of the canvas for this view
   this.gl.enable(this.gl.SCISSOR_TEST);
   this.gl.scissor(...leftTopWidthHeight);
+
   var crossXYZ = [
     this.scene.crosshairPos[0],
     this.scene.crosshairPos[1],
@@ -3102,6 +3183,19 @@ Niivue.prototype.draw2D = function (leftTopWidthHeight, axCorSag) {
   let isMirrorLR =
     this.opts.isRadiologicalConvention && axCorSag < this.sliceTypeSagittal;
   this.sliceShader.use(this.gl);
+  let offset =
+    this.sliceMode === SLICE_PAN_ZOOM_MODE
+      ? this.sliceOffsets[axCorSag]
+      : [0, 0];
+
+  // crossXYZ
+  this.gl.uniform2fv(this.sliceShader.uniforms["crosshairs"], [
+    crossXYZ[0],
+    crossXYZ[1],
+  ]);
+  let zoom = this.volScaleMultiplier; // this.sliceZoomLevels[axCorSag]
+  this.gl.uniform2fv(this.sliceShader.uniforms["offset"], offset);
+  this.gl.uniform1f(this.sliceShader.uniforms["zoom"], zoom);
   this.gl.uniform1f(
     this.sliceShader.uniforms["opacity"],
     this.volumes[0].opacity
@@ -3129,7 +3223,7 @@ Niivue.prototype.draw2D = function (leftTopWidthHeight, axCorSag) {
   //gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   this.gl.bindVertexArray(this.genericVAO); //set vertex attributes
   this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
-  
+
   // turn off scissor test
   this.gl.disable(this.gl.SCISSOR_TEST);
   //record screenSlices to detect mouse click positions
@@ -3840,7 +3934,11 @@ Niivue.prototype.drawScene = function () {
     }
   }
 
-  if (this.isDragging && this.sliceType !== this.sliceTypeRender) {
+  if (
+    this.isDragging &&
+    this.sliceType !== this.sliceTypeRender &&
+    this.sliceMode === SLICE_SCROLL_MODE
+  ) {
     let width = Math.abs(this.dragStart[0] - this.dragEnd[0]);
     let height = Math.abs(this.dragStart[1] - this.dragEnd[1]);
 
