@@ -97,7 +97,7 @@ export function Niivue(options = {}) {
     trustCalMinMax: true, // trustCalMinMax: if true do not calculate cal_min or cal_max if set in image header. If false, always calculate display intensity range.
     clipPlaneHotKey: "KeyC", // keyboard short cut to activate the clip plane
     viewModeHotKey: "KeyV", // keyboard shortcut to switch view modes
-    viewSliceModeHotKey: "KeyS",
+    viewSliceModeHotKey: "KeyS", // keyboard shortcut to switch between slice scrolling and slice zoom/pan
     keyDebounceTime: 50, // default debounce time used in keyup listeners
     isNearestInterpolation: false,
     isAtlasOutline: false,
@@ -851,6 +851,9 @@ Niivue.prototype.keyUpListener = function (e) {
         this.sliceMode = SLICE_PAN_ZOOM_MODE;
         break;
     }
+  } else if (e.code === "Digit0" && e.ctrlKey) {
+    this.volScaleMultiplier = 1.0;
+    this.drawScene();
   }
 };
 
