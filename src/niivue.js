@@ -497,7 +497,6 @@ Niivue.prototype.mouseLeftButtonHandler = function (e) {
   );
 
   if (this.sliceMode === SLICE_PAN_ZOOM_MODE) {
-    console.log("panning");
     this.dragStart[0] = pos.x;
     this.dragStart[1] = pos.y;
     this.isDragging = true;
@@ -839,10 +838,6 @@ Niivue.prototype.keyUpListener = function (e) {
       this.lastCalled = now;
     }
   } else if (e.code === this.opts.viewSliceModeHotKey) {
-    // console.log("toggle slice view mode");
-    // console.log(this.sliceMode);
-    // this.sliceMode = !this.sliceMode;
-    // console.log(this.sliceMode);
     switch (this.sliceMode) {
       case SLICE_PAN_ZOOM_MODE:
         this.sliceMode = SLICE_SCROLL_MODE;
@@ -2844,15 +2839,15 @@ Niivue.prototype.mouseClick = function (x, y, posChange = 0, isDelta = true) {
     //the thumbnail is now released, do something profound: actually load the images
   }
   if (this.sliceMode === SLICE_PAN_ZOOM_MODE) {
-    let sliceZoomed = this.getSlideFromPos(x, y);
-    console.log("zooming slide");
-    if (sliceZoomed >= 0) {
-      this.volScaleMultiplier =
-        posChange > 0
-          ? Math.min(2.0, this.volScaleMultiplier * 1.1)
-          : Math.max(0.5, this.volScaleMultiplier * 0.9);
-      this.drawScene();
-    }
+    // let sliceZoomed = this.getSlideFromPos(x, y);
+    // if (sliceZoomed >= 0) {
+    this.volScaleMultiplier =
+      posChange > 0
+        ? Math.min(2.0, this.volScaleMultiplier * 1.1)
+        : Math.max(0.5, this.volScaleMultiplier * 0.9);
+    console.log("zoom changed");
+    this.drawScene();
+    // }
     return;
   }
   if (this.sliceType === this.sliceTypeRender) {
@@ -2902,6 +2897,7 @@ Niivue.prototype.mouseClick = function (x, y, posChange = 0, isDelta = true) {
     var fracX = (x - ltwh[0]) / ltwh[2];
     if (isMirror) fracX = 1.0 - fracX;
     var fracY = 1.0 - (y - ltwh[1]) / ltwh[3];
+
     if (fracX >= 0.0 && fracX < 1.0 && fracY >= 0.0 && fracY < 1.0) {
       //user clicked on slice i
       if (!isDelta) {
@@ -2930,6 +2926,7 @@ Niivue.prototype.mouseClick = function (x, y, posChange = 0, isDelta = true) {
         });
         return;
       }
+
       if (axCorSag === this.sliceTypeAxial) {
         this.scene.crosshairPos[0] = fracX;
         this.scene.crosshairPos[1] = fracY;
@@ -3186,16 +3183,24 @@ Niivue.prototype.draw2D = function (leftTopWidthHeight, axCorSag) {
   let isMirrorLR =
     this.opts.isRadiologicalConvention && axCorSag < this.sliceTypeSagittal;
   this.sliceShader.use(this.gl);
-  let offset =
-    this.sliceMode === SLICE_PAN_ZOOM_MODE
-      ? this.sliceOffsets[axCorSag]
-      : [0, 0];
+  // let offset =
+  //   this.sliceMode === SLICE_PAN_ZOOM_MODE
+  //     ? this.sliceOffsets[axCorSag]
+  //     : [0, 0];
+  let offset = [0, 0];
 
   // crossXYZ
-  this.gl.uniform2fv(this.sliceShader.uniforms["crosshairs"], [
-    crossXYZ[0],
-    crossXYZ[1],
-  ]);
+  if (this.sliceMode === SLICE_PAN_ZOOM_MODE) {
+    this.gl.uniform2fv(this.sliceShader.uniforms["crosshairs"], [
+      crossXYZ[0],
+      crossXYZ[1],
+    ]);
+  } else {
+    // we are not zooming and do not want to move the image
+    this.gl.uniform2fv(this.sliceShader.uniforms["crosshairs"], [0.5, 0.5]);
+  }
+  console.log("crosshairs");
+  console.log(crossXYZ);
   let zoom = this.volScaleMultiplier; // this.sliceZoomLevels[axCorSag]
   this.gl.uniform2fv(this.sliceShader.uniforms["offset"], offset);
   this.gl.uniform1f(this.sliceShader.uniforms["zoom"], zoom);
