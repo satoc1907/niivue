@@ -1,6 +1,6 @@
 .DS_Store
 node_modules
-/dist
+##/dist
 devdocs
 /_md_docs
 /docs/niivue*.js
